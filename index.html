@@ -36,6 +36,44 @@
             min-width: 150px;
         }
         
+        .sound-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+        
+        .sound-toggle {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.3s;
+        }
+        
+        .sound-toggle:hover {
+            background: #5a6fd8;
+        }
+        
+        .sound-toggle.muted {
+            background: #666;
+        }
+        
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .volume-slider {
+            width: 60px;
+            height: 5px;
+        }
+        
         .info-box {
             background: rgba(255,255,255,0.1);
             padding: 15px;
@@ -210,6 +248,15 @@
         <canvas id="gameBoard" class="game-board" width="300" height="600"></canvas>
         <div class="info-panel">
             <div class="info-box">
+                <div class="sound-controls">
+                    <button class="sound-toggle" id="soundToggle" onclick="toggleSound()">🔊 ON</button>
+                    <div class="volume-control">
+                        <span style="font-size: 10px;">Vol</span>
+                        <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="50" onchange="setVolume(this.value)">
+                    </div>
+                </div>
+            </div>
+            <div class="info-box">
                 <h3>점수</h3>
                 <div class="score" id="score">0</div>
             </div>
@@ -345,6 +392,107 @@
         let holdPiece = null;
         let canHold = true;
         let lastAction = null; // 마지막 액션 추적 (T-spin 감지용)
+        
+        // 사운드 시스템
+        let audioContext = null;
+        let soundEnabled = true;
+        let volume = 0.5;
+        
+        function initAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (e) {
+                console.log('Web Audio API not supported');
+                soundEnabled = false;
+            }
+        }
+        
+        function playSound(frequency, duration, type = 'sine', volume = 0.3) {
+            if (!soundEnabled || !audioContext) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            oscillator.type = type;
+            
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(volume * (window.volume || 0.5), audioContext.currentTime + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+        
+        function playMoveSound() {
+            playSound(220, 0.1, 'square', 0.1);
+        }
+        
+        function playRotateSound() {
+            playSound(330, 0.15, 'sawtooth', 0.15);
+        }
+        
+        function playDropSound() {
+            playSound(110, 0.2, 'triangle', 0.2);
+        }
+        
+        function playLineClearSound(lines) {
+            switch(lines) {
+                case 1:
+                    playSound(440, 0.3, 'sine', 0.3);
+                    break;
+                case 2:
+                    playSound(440, 0.2, 'sine', 0.3);
+                    setTimeout(() => playSound(550, 0.2, 'sine', 0.3), 100);
+                    break;
+                case 3:
+                    playSound(440, 0.15, 'sine', 0.3);
+                    setTimeout(() => playSound(550, 0.15, 'sine', 0.3), 80);
+                    setTimeout(() => playSound(660, 0.15, 'sine', 0.3), 160);
+                    break;
+                case 4: // 테트리스
+                    playSound(440, 0.1, 'sine', 0.4);
+                    setTimeout(() => playSound(550, 0.1, 'sine', 0.4), 50);
+                    setTimeout(() => playSound(660, 0.1, 'sine', 0.4), 100);
+                    setTimeout(() => playSound(880, 0.4, 'sine', 0.4), 150);
+                    break;
+            }
+        }
+        
+        function playTSpinSound() {
+            // 특별한 T-spin 사운드
+            playSound(880, 0.1, 'sawtooth', 0.3);
+            setTimeout(() => playSound(1100, 0.1, 'sawtooth', 0.3), 50);
+            setTimeout(() => playSound(1320, 0.3, 'sawtooth', 0.3), 100);
+        }
+        
+        function playHoldSound() {
+            playSound(660, 0.2, 'triangle', 0.2);
+        }
+        
+        function playGameOverSound() {
+            playSound(220, 0.2, 'sawtooth', 0.3);
+            setTimeout(() => playSound(196, 0.2, 'sawtooth', 0.3), 150);
+            setTimeout(() => playSound(175, 0.4, 'sawtooth', 0.3), 300);
+        }
+        
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            const button = document.getElementById('soundToggle');
+            button.textContent = soundEnabled ? '🔊 ON' : '🔇 OFF';
+            button.className = soundEnabled ? 'sound-toggle' : 'sound-toggle muted';
+            
+            if (soundEnabled && !audioContext) {
+                initAudio();
+            }
+        }
+        
+        function setVolume(value) {
+            window.volume = value / 100;
+        }
         
         function getRandomPiece() {
             const piece = pieces[Math.floor(Math.random() * pieces.length)];
@@ -484,6 +632,7 @@
             if (isValidPosition(piece, piece.x, piece.y, newShape)) {
                 piece.shape = newShape;
                 lastAction = 'rotate'; // T-spin 감지용
+                playRotateSound();
             }
         }
         
@@ -536,6 +685,7 @@
                         case 2: baseScore = 1200; break;
                         case 3: baseScore = 1600; break;
                     }
+                    playTSpinSound();
                 } else {
                     switch(linesCleared) {
                         case 1: baseScore = 100; break;
@@ -543,6 +693,7 @@
                         case 3: baseScore = 500; break;
                         case 4: baseScore = 800; break;
                     }
+                    playLineClearSound(linesCleared);
                 }
                 score += baseScore * level;
                 
@@ -605,6 +756,7 @@
         
         function gameOver() {
             gameRunning = false;
+            playGameOverSound();
             document.getElementById('finalScore').textContent = score.toLocaleString();
             document.getElementById('gameOver').style.display = 'block';
         }
@@ -626,6 +778,7 @@
             if (!canHold || !currentPiece) return;
             
             canHold = false;
+            playHoldSound();
             
             if (holdPiece) {
                 // 기존 hold 블록과 교환
@@ -660,6 +813,7 @@
             if (isValidPosition(currentPiece, currentPiece.x, currentPiece.y + 1)) {
                 currentPiece.y++;
             } else {
+                playDropSound();
                 placePiece(currentPiece);
                 spawnNewPiece();
             }
@@ -670,6 +824,7 @@
                 currentPiece.y++;
                 score += 1;
             }
+            playDropSound();
             placePiece(currentPiece);
             spawnNewPiece();
             updateDisplay();
@@ -733,12 +888,14 @@
                     if (isValidPosition(currentPiece, currentPiece.x - 1, currentPiece.y)) {
                         currentPiece.x--;
                         lastAction = 'move';
+                        playMoveSound();
                     }
                     break;
                 case 'KeyD':
                     if (isValidPosition(currentPiece, currentPiece.x + 1, currentPiece.y)) {
                         currentPiece.x++;
                         lastAction = 'move';
+                        playMoveSound();
                     }
                     break;
                 case 'KeyS':
@@ -767,6 +924,8 @@
         
         // 게임 시작
         lastAction = null;
+        initAudio(); // 오디오 초기화
+        window.volume = 0.5; // 기본 볼륨 설정
         spawnNewPiece();
         requestAnimationFrame(gameLoop);
         updateDisplay();
